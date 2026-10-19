@@ -1,0 +1,184 @@
+{
+  "name": "DIO - Assistente de Investimentos",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clientes",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -384,
+        -16
+      ],
+      "id": "bb11e0ab-eebb-404b-a549-5a9d95973b80",
+      "name": "Webhook",
+      "webhookId": "226f35b3-5c87-4e5e-9cf2-70e314a8330e"
+    },
+    {
+      "parameters": {
+        "url": "https://digitalinnovationone.github.io/dio-lab-assistente-investimentos-rpa-n8n/data.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -64,
+        48
+      ],
+      "id": "fcbf4ca7-a3da-4ef8-96f7-12a56ce2d7dd",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst entrada = $input.first().json;\n\n// O HTTP Request deve devolver o CSV como texto no campo \"data\".\nconst csv = entrada.data;\n\nif (typeof csv !== 'string' || !csv.trim()) {\n  throw new Error('CSV não encontrado no campo data.');\n}\n\n// Divide o conteúdo em linhas\nconst linhas = csv.trim().split(/\\r?\\n/);\n\n// Detecta o separador usado no cabeçalho\nconst separador = linhas[0].includes(';') ? ';' : ',';\n\n// Extrai o nome de cada coluna\nconst cabecalho = linhas[0]\n  .split(separador)\n  .map(coluna => coluna.trim().replace(/^\"|\"$/g, ''));\n\n// Converte cada linha em um objeto JSON\nconst investimentos = linhas.slice(1)\n  .filter(linha => linha.trim())\n  .map(linha => {\n    const valores = linha.split(separador);\n\n    const investimento = {};\n\n    cabecalho.forEach((coluna, indice) => {\n      investimento[coluna] = (valores[indice] ?? '')\n        .trim()\n        .replace(/^\"|\"$/g, '');\n    });\n\n    return { json: investimento };\n  });\n\nreturn investimentos;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        48
+      ],
+      "id": "41940d7f-5b45-492e-aebc-53fb68403218",
+      "name": "Converter CSV em JSON"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        304,
+        -32
+      ],
+      "id": "182b8aac-97c9-436e-b3e9-f5989c4e635c",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst itens = $input.all().map(item => item.json);\n\n// 1. Localizar os clientes recebidos pelo Webhook\nconst entradaClientes = itens.find(\n  item => Array.isArray(item.body?.clientes)\n);\n\nif (!entradaClientes) {\n  throw new Error(\"Lista de clientes não encontrada.\");\n}\n\nconst clientes = entradaClientes.body.clientes;\n\n// 2. Separar os investimentos recebidos do CSV\nconst investimentos = itens.filter(\n  item => !Array.isArray(item.body?.clientes)\n);\n\n// 3. Recomendar investimentos conforme o perfil\nconst recomendacoes = clientes.map(cliente => {\n\n  const perfilCliente = String(cliente.perfil)\n    .trim()\n    .toLowerCase();\n\n  const investimentosIndicados = investimentos.filter(\n    investimento => {\n\n      const perfilInvestimento = String(\n        investimento.perfil ||\n        investimento.perfil_risco ||\n        investimento.perfilRisco ||\n        \"\"\n      ).trim().toLowerCase();\n\n      return perfilInvestimento === perfilCliente;\n    }\n  );\n\n  // 4. Retornar os dados de cada cliente\n  return {\n    json: {\n      nome: cliente.nome,\n      email: cliente.email,\n      saldo: cliente.saldo,\n      perfil: cliente.perfil,\n      investimentos: investimentosIndicados\n    }\n  };\n});\n\nreturn recomendacoes;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        -32
+      ],
+      "id": "30500ffa-adbd-468f-954c-6a444a22e9c2",
+      "name": "Recomendar Investimentos"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst clientes = $input.all();\n\nreturn clientes.map(item => {\n  const cliente = item.json;\n\n  const investimentos = cliente.investimentos || [];\n\n  const lista = investimentos.length > 0\n    ? investimentos.map(investimento => {\n        const nome = investimento.nome ||\n                     investimento.investimento ||\n                     investimento.produto ||\n                     \"Investimento\";\n\n        return `- ${nome}`;\n      }).join(\"\\n\")\n    : \"Nenhum investimento compatível foi identificado.\";\n\n  const mensagem = `\nOlá, ${cliente.nome}!\n\nPreparamos uma análise inicial de investimentos para você.\n\nSeu perfil: ${cliente.perfil}\nSaldo informado: ${cliente.saldo}\n\nInvestimentos compatíveis com seu perfil:\n${lista}\n\nAs sugestões são apenas informativas e não representam uma recomendação financeira individualizada.\n\nAtenciosamente,\nAssistente de Investimentos\n`.trim();\n\n  return {\n    json: {\n      ...cliente,\n      mensagem\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        -32
+      ],
+      "id": "5e3d7ff8-8af9-4d58-b75b-a5259c58403c",
+      "name": "Gerar Mensagens Personalizadas"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst resultados = $input.all();\n\nreturn resultados.map(item => {\n  const cliente = item.json;\n\n  return {\n    json: {\n      cliente: cliente.nome,\n      email: cliente.email,\n      perfil: cliente.perfil,\n      saldo: cliente.saldo,\n      quantidadeInvestimentos: (\n        cliente.investimentos || []\n      ).length,\n      mensagem: cliente.mensagem,\n      status: \"MENSAGEM_GERADA\"\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        976,
+        -32
+      ],
+      "id": "091f7be7-73a4-4ccf-b408-67bc3d9ed6d5",
+      "name": "Preparar Resultado Final"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Converter CSV em JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Converter CSV em JSON": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Recomendar Investimentos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recomendar Investimentos": {
+      "main": [
+        [
+          {
+            "node": "Gerar Mensagens Personalizadas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gerar Mensagens Personalizadas": {
+      "main": [
+        [
+          {
+            "node": "Preparar Resultado Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "c44664bd-c8f7-414f-bbc0-b9bd02e0775f",
+  "meta": {
+    "instanceId": "e98ac18644e46c99ab21263d5b0a850dc89c831006a75380ed49dea1a5a07397"
+  },
+  "nodeGroups": [],
+  "id": "WB4DvDFCILcwo9RJ",
+  "tags": []
+}
